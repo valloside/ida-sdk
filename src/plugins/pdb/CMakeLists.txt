@@ -1,7 +1,8 @@
 ida_add_plugin(pdb
     SOURCES
         pdb.cpp
-        pdb.hpp
+        old.cpp
+        merge.cpp
 )
 
 # Mark #included files as HEADER_FILE_ONLY

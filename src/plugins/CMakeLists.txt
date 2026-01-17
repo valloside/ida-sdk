@@ -31,14 +31,7 @@ add_subdirectory(mtsample)
 add_subdirectory(navcolor)
 add_subdirectory(openform)
 
-# TODO: PDB plugin excluded - requires SDK source modifications
-# Issue: winerr() function from err.h not properly included
-# The plugin compiles with SDK makefiles but has header issues with CMake
-if(WIN32)
-    message(STATUS "pdb: Skipped (requires SDK source modifications). Windows only")
-else()
-    add_subdirectory(pdb)
-endif()
+add_subdirectory(pdb)
 
 add_subdirectory(procext)
 add_subdirectory(qproject)

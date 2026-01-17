@@ -1,5 +1,7 @@
 CLAUDE.md
 .claude/
+.cache/
+.vscode/
 # Compiled files
 *.a
 *.dll
