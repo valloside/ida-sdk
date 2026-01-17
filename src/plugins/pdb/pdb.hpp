@@ -95,6 +95,7 @@ struct pdb_ctx_t : public plugmod_t, public event_listener_t
   qstring pdb_remote_server;
   qstring pdb_remote_passwd;
 #define PDB_PROVIDER_MSDIA  1
+#define PDB_PROVIDER_PDBIDA 2
   uint pdb_provider = PDB_PROVIDER_MSDIA;
 #define PDB_NETWORK_OFF 0   // local directories search only
 #define PDB_NETWORK_PE  1   // local directories search for COFF, full search for PE
@@ -114,7 +115,7 @@ struct pdb_ctx_t : public plugmod_t, public event_listener_t
   // -1 don't specified
   // 0  set PDB_FALLBACK to false
   // 1  set PDB_FALLBACK to true
-  int opt_fallback = -1;
+  bool opt_fallback = -1;
 
   using namelist_t = std::map<ea_t, qstring>;
   namelist_t namelist;

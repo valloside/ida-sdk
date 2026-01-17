@@ -815,6 +815,8 @@ static const cfgopt_t g_opts[] =
   CFGOPT_QS("PDB_REMOTE_SERVER",  pdb_ctx_t, pdb_remote_server,  true),
   CFGOPT_QS("PDB_REMOTE_PASSWD",  pdb_ctx_t, pdb_remote_passwd,  true),
   CFGOPT_R ("PDB_NETWORK",        pdb_ctx_t, pdb_network,        PDB_NETWORK_OFF, PDB_NETWORK_ON),
+  CFGOPT_R ("PDB_PROVIDER",       pdb_ctx_t, pdb_provider,       PDB_PROVIDER_MSDIA, PDB_PROVIDER_PDBIDA),
+  CFGOPT_QS("PDB_MSDIA_FALLBACK", pdb_ctx_t, opt_fallback,       true)
 };
 
 //----------------------------------------------------------------------
