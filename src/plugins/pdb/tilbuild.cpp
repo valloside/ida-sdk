@@ -368,6 +368,9 @@ MAKE_INT:
     case btVariant:  name = "VARIANT";                         break;
     case btComplex:  name = "complex";                         break;
     case btDate:     name = "DATE";                            break;
+    case btChar16:   name = "char16_t";                        break;
+    case btChar32:   name = "char32_t";                        break;
+    case btChar8:    name = "char8_t";                         break;
   }
   if ( name != nullptr )
   {
@@ -1287,6 +1290,10 @@ cvt_code_t til_builder_t::convert_udt(
 
       if ( is_intro_virtual )
       {
+        // DIA always returns a 0 offset for override virtual functions, we merge dtor and ignore rest
+        if ( vfptr_offset == 0 && name.find('~') == qstring::npos )
+          return S_OK;
+
         if ( vftinfo != nullptr )
         {
           ddeb(("PDEB:   convert_udt vtable %s add '%s' of '%s' vptr offset %u\n", vftname, name.c_str(), tpi.type.dstr(), vfptr_offset));
@@ -1482,9 +1489,9 @@ cvt_code_t til_builder_t::convert_udt(
   {
     if ( udt.empty() )
       is_cppobj = true;
-    if ( udt.size() == 1
-      && udt[0].is_baseclass()
-      && udt[0].type.is_empty_udt() )
+    else if ( udt.size() == 1
+           && udt[0].is_baseclass()
+           && udt[0].type.is_empty_udt() )
     {
       is_cppobj = true;
     }
