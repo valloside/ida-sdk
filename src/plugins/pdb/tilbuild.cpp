@@ -1904,7 +1904,7 @@ cvt_code_t til_builder_t::really_convert_type(
         DWORD tag)
 {
   // retrieve type modifiers
-  type_t mods = get_sym_modifiers(sym);
+  type_t mods = tag == SymTagUDT ? 0 : get_sym_modifiers(sym);
 
   DWORD64 size = 0;
   sym.get_length(&size);
