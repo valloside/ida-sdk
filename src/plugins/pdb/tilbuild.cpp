@@ -2750,6 +2750,27 @@ HRESULT til_builder_t::handle_symbol(pdb_sym_t &sym)
   return S_OK;
 }
 
+//----------------------------------------------------------------------------
+// A helper class to show a progress indicator window
+struct pdb_progress_indicator_t
+{
+  const char *stage_name;
+  pdb_progress_indicator_t(const char *stage_name_) : stage_name(stage_name_)
+  {
+    show_wait_box("Loading PDB: %s...", stage_name);
+  }
+
+  ~pdb_progress_indicator_t()
+  {
+    hide_wait_box();
+  }
+
+  void update(int progress)
+  {
+    replace_wait_box("Loading PDB: %s... (%d done)", stage_name, progress);
+  }
+};
+
 //----------------------------------------------------------------------
 // Each time we encounter a toplevel type/func/whatever, we want to make
 // sure the UI has had a chance to refresh itself.
@@ -2770,16 +2791,23 @@ struct symbol_handler_t : public toplevel_children_visitor_t
 {
   virtual HRESULT do_visit_child(pdb_sym_t &sym) override
   {
-    return tb->handle_symbol(sym);
+    HRESULT res = tb->handle_symbol(sym);
+    count++;
+    if ( ( count % 1000 ) == 0 )
+      indicator.update(count);
+    return res;
   }
-  symbol_handler_t(til_builder_t *_tb) : tb(_tb) {}
+  symbol_handler_t(til_builder_t *_tb, const char *stage_name = "Handling symbols")
+   : tb(_tb), indicator(stage_name), count(0) {}
   til_builder_t *tb;
+  pdb_progress_indicator_t indicator;
+  size_t count;
 };
 
 //-------------------------------------------------------------------------
 HRESULT til_builder_t::handle_symbols(pdb_sym_t &global_sym)
 {
-  symbol_handler_t cp(this);
+  symbol_handler_t cp(this, "Handling symbols");
   HRESULT hr;
   while ( true )
   {
@@ -2795,14 +2823,14 @@ HRESULT til_builder_t::handle_symbols(pdb_sym_t &global_sym)
 //-------------------------------------------------------------------------
 HRESULT til_builder_t::handle_publics(pdb_sym_t &global_sym)
 {
-  symbol_handler_t cp(this);
+  symbol_handler_t cp(this, "Handling publics");
   return pdb_access->iterate_children(global_sym, SymTagPublicSymbol, cp);
 }
 
 //-------------------------------------------------------------------------
 HRESULT til_builder_t::handle_globals(pdb_sym_t &global_sym)
 {
-  symbol_handler_t cp(this);
+  symbol_handler_t cp(this, "Handling globals");
   return pdb_access->iterate_children(global_sym, SymTagData, cp);
 }
 
@@ -2813,12 +2841,15 @@ HRESULT til_builder_t::handle_types(pdb_sym_t &global_sym)
   struct type_importer_t : public toplevel_children_visitor_t
   {
     til_builder_t *tb;
+    pdb_progress_indicator_t indicator{"Handling types"};
     int counter;
     virtual HRESULT do_visit_child(pdb_sym_t &sym) override
     {
       tpinfo_t tpi;
       if ( tb->retrieve_type(&tpi, sym, parent) )
         counter++;
+      if ( ( counter % 1000 ) == 0 )
+        indicator.update(counter);
       return S_OK;
     }
     type_importer_t(til_builder_t *_tb) : tb(_tb), counter(0) {}
@@ -2852,14 +2883,9 @@ HRESULT til_builder_t::build(pdb_sym_t &global_sym)
 {
   HRESULT hr = before_iterating(global_sym);
   if ( hr == S_OK && (pdb_access->pdbargs.flags & PDBFLG_LOAD_TYPES) != 0 )
-  {
-    show_wait_box("Handling types ...");
     hr = handle_types(global_sym);
-    hide_wait_box();
-  }
   if ( (pdb_access->pdbargs.flags & PDBFLG_LOAD_NAMES) != 0 )
   {
-    show_wait_box("Handling symbols ...");
     if ( hr == S_OK )
       hr = handle_symbols(global_sym);
     if ( hr == S_OK )
@@ -2875,13 +2901,13 @@ HRESULT til_builder_t::build(pdb_sym_t &global_sym)
     // Therefore, handle_publics() must be called *after* handle_globals().
     if ( hr == S_OK )
       hr = handle_publics(global_sym);
-    hide_wait_box();
   }
   if ( hr == S_OK )
   {
-    show_wait_box("Creating virtual function tables ...");
-    create_vftables();
-    hide_wait_box();
+    {
+      pdb_progress_indicator_t indicator{"Creating virtual function tables"};
+      create_vftables();
+    }
     if ( user_cancelled() )
       return E_ABORT;
 
