@@ -2034,11 +2034,21 @@ FAILED_ARRAY:
         struct name_value_collector_t : public pdb_access_t::children_visitor_t
         {
           const til_builder_t *tb;
+          const qstring &parent_enum_name;
           enum_type_data_t ei;
           HRESULT visit_child(pdb_sym_t &child) override
           {
             edm_t &em = ei.push_back();
-            child.get_name(&em.name);
+            qstring member_name;
+            child.get_name(&member_name);
+            if ( !parent_enum_name.empty() )
+            {
+              em.name.sprnt("%s::%s", parent_enum_name.c_str(), member_name.c_str());
+            }
+            else
+            {
+              em.name = member_name;
+            }
             em.value = tb->get_variant_long_value(child);
             if ( em.name.empty() )
             {
@@ -2046,10 +2056,12 @@ FAILED_ARRAY:
             }
             return S_OK;
           }
-          name_value_collector_t(const til_builder_t *_tb)
-            : tb(_tb) {}
+          name_value_collector_t(const til_builder_t *_tb, const qstring &_parent_enum_name)
+            : tb(_tb), parent_enum_name(_parent_enum_name) {}
         };
-        name_value_collector_t nvc(this);
+        qstring parent_scope_name;
+        get_symbol_name(sym, parent_scope_name);
+        name_value_collector_t nvc(this, parent_scope_name);
         if ( size != 0 && size <= 64 )
           nvc.ei.set_nbytes(size);
         HRESULT hr = pdb_access->iterate_children(sym, SymTagNull, nvc);
