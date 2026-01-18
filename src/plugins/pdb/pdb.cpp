@@ -501,6 +501,30 @@ static void apply_annotation(ea_t ea, const qstrvec_t &params)
 }
 
 //----------------------------------------------------------------------------
+// if RTTI enabled, pdb counts the "RTTI Complete Object Locator" (at idx -1)
+// check whether the last elem is a func ptr
+static void fix_vftable_size(ea_t ea, til_builder_t::tpinfo_t &tpi) {
+  if ( !tpi.type.is_array() )
+    return;
+  tinfo_t elem_type = tpi.type.get_array_element();
+  if ( !elem_type.is_funcptr() )
+    return;
+  size_t total_size = tpi.type.get_size();
+  size_t ptr_size = inf_is_64bit() ? 8 : 4;
+  if ( total_size > 0 && (total_size % ptr_size) == 0 )
+  {
+    ea_t last_ea = ea + total_size - ptr_size;
+    ea_t last_val = inf_is_64bit() ? get_qword(last_ea) : get_dword(last_ea);
+    if ( get_func(last_val) == nullptr )
+    {
+      size_t nelems = tpi.type.get_array_nelems();
+      if ( nelems > 0 )
+        tpi.type.create_array(elem_type, nelems - 1);
+    }
+  }
+}
+
+//----------------------------------------------------------------------------
 bool pdb_til_builder_t::handle_symbol_at_ea(
         pdb_sym_t &sym,
         DWORD tag,
@@ -621,6 +645,9 @@ bool pdb_til_builder_t::handle_symbol_at_ea(
       }
       if ( npass != 0 )
       {
+        if ( tag == SymTagData && name.ends_with("::`vftable'") )
+          fix_vftable_size(ea, tpi);
+
         bool use_ti = true;
         func_type_data_t fti;
         if ( tpi.type.get_func_details(&fti)
