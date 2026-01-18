@@ -518,7 +518,31 @@ bool til_builder_t::is_member_func(tinfo_t *class_type, pdb_sym_t &typeSym, pdb_
     BOOL bIsStatic = false;
     HRESULT hr = funcSym->get_isStatic(&bIsStatic);
     if ( hr == S_OK )
-      return !bIsStatic;
+    {
+      if ( !bIsStatic )
+        return true; // DIA says it's not static, we trust it
+
+      // DIA says it's static, it might be wrong
+      struct object_ptr_checker_t : public pdb_access_t::children_visitor_t
+      {
+        bool has_objptr = false;
+        HRESULT visit_child(pdb_sym_t &sym) override
+        {
+          DWORD data_kind;
+          if ( sym.get_dataKind(&data_kind) == S_OK && data_kind == DataIsObjectPtr )
+          {
+            has_objptr = true;
+            return S_FALSE;
+          }
+          return S_OK;
+        }
+      };
+
+      object_ptr_checker_t checker;
+      pdb_access->iterate_children(*funcSym, SymTagData, checker);
+
+      return checker.has_objptr;
+    }
   }
   return true;
 }
