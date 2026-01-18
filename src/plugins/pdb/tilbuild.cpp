@@ -126,6 +126,20 @@ bool til_builder_t::get_symbol_name(pdb_sym_t &sym, qstring &buf)
       }
     }
   }
+  // Balance template brackets for truncated names, usually caused by super long name
+  int open_brackets = 0;
+  for ( char p : buf )
+  {
+    if ( p == '<' )
+      open_brackets++;
+    else if ( p == '>' && open_brackets > 0 )
+      open_brackets--;
+  }
+  if ( open_brackets > 0 )
+  {
+    for ( int i = 0; i < open_brackets; ++i )
+      buf.append(">");
+  }
   return is_unnamed;
 }
 
