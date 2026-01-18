@@ -1296,7 +1296,9 @@ cvt_code_t til_builder_t::convert_udt(
       }
 
       ddeb(("PDEB:   convert_udt adding member '%s' of type '%s'\n", name.c_str(), tpi.type.dstr()));
-      asize_t memsize = tb->get_symbol_type_length(sym);
+      asize_t memsize = tpi.type.get_size();
+      if ( memsize == BADSIZE )
+        memsize = tb->get_symbol_type_length(sym);
 
       pdb_udm_t &udm = udt.push_back();
 
