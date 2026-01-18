@@ -154,10 +154,44 @@ bool til_builder_t::get_symbol_type(tpinfo_t *out, pdb_sym_t &sym, uint32 *p_ord
   return ok;
 }
 
+// scope::name<...> -> name
+static qstring get_base_cpp_name(const qstring &fq_name)
+{
+  const char *name_start = fq_name.c_str();
+  int template_level = 0;
+  const char *base_start = name_start;
+
+  for (const char *p = name_start; *p != '\0'; ++p)
+  {
+    if (*p == '<')
+    {
+      template_level++;
+    }
+    else if (*p == '>')
+    {
+      if (template_level > 0)
+        template_level--;
+    }
+    else if (*p == ':' && p[1] == ':' && template_level == 0)
+    {
+      base_start = p + 2;
+    }
+  }
+
+  qstring base_name(base_start);
+  size_t template_pos = base_name.find('<');
+  if (template_pos != qstring::npos)
+  {
+    base_name.resize(template_pos);
+  }
+  return base_name;
+}
+
+
 //----------------------------------------------------------------------------
 bool til_builder_t::fix_ctor_to_return_ptr(func_type_data_t *fti, pdb_sym_t *parent)
 {
-  if ( inf_get_app_bitness() != 32 || parent == nullptr )
+  if ( parent == nullptr )
     return false;
 
   // detect constructor
@@ -166,16 +200,31 @@ bool til_builder_t::fix_ctor_to_return_ptr(func_type_data_t *fti, pdb_sym_t *par
   const auto &arg0 = fti->at(0);
   if ( !arg0.type.is_ptr() )
     return false;
-  tinfo_t class_type = arg0.type.get_pointed_object();
-  qstring class_name;
-  if ( !class_type.get_type_name(&class_name) )
+
+  tinfo_t class_tif = arg0.type.get_pointed_object();
+  qstring class_fq_name;
+  if ( !class_tif.get_type_name(&class_fq_name) )
     return false;
 
   qstring funcname;
   parent->get_name(&funcname);
-  qstring ctor_name;
-  ctor_name.sprnt("%s::%s", class_name.c_str(), class_name.c_str());
-  if ( ctor_name != funcname )
+
+  // Compare base names (without <...>)
+  qstring func_base_name = get_base_cpp_name(funcname);
+  qstring class_base_name = get_base_cpp_name(class_fq_name);
+
+  bool is_ctor = false;
+  if ( !func_base_name.empty() && func_base_name == class_base_name )
+  {
+    is_ctor = true;
+  }
+  else if ( func_base_name.empty() && class_base_name.empty() )
+  {
+    // lambda ctor like '...::<lambda_1>::<lambda_1>'
+    is_ctor = true;
+  }
+
+  if ( !is_ctor )
     return false;
 
   ddeb(("PDEB: detected constructor %s\n", funcname.c_str()));
