@@ -203,13 +203,17 @@ static qstring get_base_cpp_name(const qstring &fq_name)
 
 
 //----------------------------------------------------------------------------
-bool til_builder_t::fix_ctor_to_return_ptr(func_type_data_t *fti, pdb_sym_t *parent)
+bool til_builder_t::fix_ctor_to_return_ptr(func_type_data_t *fti, pdb_sym_t *parent, callcnv_t cc)
 {
   if ( parent == nullptr )
     return false;
 
   // detect constructor
-  if ( fti->empty() || !fti->rettype.is_void() )
+  if ( fti->empty() )
+    return false;
+  bool is_64bit = inf_is_64bit();
+  callcnv_t expected_cc = is_64bit ? CM_CC_FASTCALL : CM_CC_THISCALL;
+  if ( cc != expected_cc || !fti->rettype.is_void() )
     return false;
   const auto &arg0 = fti->at(0);
   if ( !arg0.type.is_ptr() )
@@ -2060,8 +2064,7 @@ FAILED_ARRAY:
             }
             if ( add_this )
               fi.insert(fi.begin(), thisarg);
-            if ( cc == CM_CC_THISCALL )
-              fix_ctor_to_return_ptr(&fi, parent);
+            fix_ctor_to_return_ptr(&fi, parent, cc);
           }
           if ( is_user_cc(cc) )
           {
