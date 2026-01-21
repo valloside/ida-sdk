@@ -32,8 +32,9 @@
 int data_id;
 
 #include "pdb.hpp"
-#define LOAD_TYPES 0x1
-#define LOAD_NAMES 0x2
+#define LOAD_TYPES        0x1
+#define LOAD_NAMES        0x2
+#define LOAD_SOURCE_LINES 0x4
 
 #include "common.cpp"
 #ifdef ENABLE_REMOTEPDB
@@ -992,6 +993,7 @@ static qstring get_input_path()
 #define ADDRESS_FIELD 10
 #define LOAD_TYPES_FIELD 20
 #define LOAD_NAMES_FIELD 30
+#define LOAD_SRC_LINES_FIELD 40
 
 //--------------------------------------------------------------------------
 static int idaapi details_modcb(int fid, form_actions_t &fa)
@@ -1001,12 +1003,14 @@ static int idaapi details_modcb(int fid, form_actions_t &fa)
     case CB_INIT:
     case LOAD_TYPES_FIELD:
     case LOAD_NAMES_FIELD:
+    case LOAD_SRC_LINES_FIELD:
       {
-        ushort types, names;
+        ushort types, names, srclines;
         if ( fa.get_rbgroup_value(LOAD_TYPES_FIELD, &types)
-          && fa.get_rbgroup_value(LOAD_NAMES_FIELD, &names) )
+          && fa.get_rbgroup_value(LOAD_NAMES_FIELD, &names)
+          && fa.get_rbgroup_value(LOAD_SRC_LINES_FIELD, &srclines) )
         {
-          fa.enable_field(ADDRESS_FIELD, !(types != 0 && names == 0));
+          fa.enable_field(ADDRESS_FIELD, !(types != 0 && names == 0 && srclines == 0));
         }
       }
       break;
@@ -1044,6 +1048,7 @@ static bool ask_pdb_details(pdbargs_t *args)
     "<#Specify the loading address of the exe/dll file#~A~ddress   :N" QSTRINGIZE(ADDRESS_FIELD) "::64::>\n"
     "<#Load types#Load ~t~ypes:C" QSTRINGIZE(LOAD_TYPES_FIELD) ">\n"
     "<#Load names#Load ~n~ames:C" QSTRINGIZE(LOAD_NAMES_FIELD) ">>\n"
+    "<#Load source lines#Load ~s~ource lines:C" QSTRINGIZE(LOAD_SRC_LINES_FIELD) ">>\n"
     "Note: you can specify either a .pdb, or an .exe/.dll file name.\n"
     "In the latter case, IDA will try to find and load\n"
     "the PDB specified in its debug directory.\n"
@@ -1064,6 +1069,7 @@ static bool ask_pdb_details(pdbargs_t *args)
   sval_t load_options = 0;
   setflag(load_options, LOAD_TYPES, (args->flags & PDBFLG_LOAD_TYPES) != 0);
   setflag(load_options, LOAD_NAMES, (args->flags & PDBFLG_LOAD_NAMES) != 0);
+  setflag(load_options, LOAD_SOURCE_LINES, (args->flags & PDBFLG_LOAD_SOURCE_LINES) != 0);
 
   if ( !ask_form(form, details_modcb, buf, &args->loaded_base, &load_options) )
     return false;
@@ -1072,6 +1078,7 @@ static bool ask_pdb_details(pdbargs_t *args)
 
   setflag(args->flags, PDBFLG_LOAD_TYPES, (load_options & LOAD_TYPES) != 0);
   setflag(args->flags, PDBFLG_LOAD_NAMES, (load_options & LOAD_NAMES) != 0);
+  setflag(args->flags, PDBFLG_LOAD_SOURCE_LINES, (load_options & LOAD_SOURCE_LINES) != 0);
 
   return true;
 }
@@ -1136,11 +1143,13 @@ static bool get_details_from_pe(pdbargs_t *args)
     "Do you want to look for this file at the specified path\n"
     "and the Microsoft Symbol Server?\n"
     "<#Load types#Load ~t~ypes:C10>\n"
-    "<#Load names#Load n~a~mes:C20>>\n";
+    "<#Load names#Load n~a~mes:C20>\n"
+    "<#Load source lines#Load ~s~ource lines:C30>>\n";
 
   sval_t load_options = 0;
   setflag(load_options, LOAD_TYPES, (args->flags & PDBFLG_LOAD_TYPES) != 0);
   setflag(load_options, LOAD_NAMES, (args->flags & PDBFLG_LOAD_NAMES) != 0);
+  setflag(load_options, LOAD_SOURCE_LINES, (args->flags & PDBFLG_LOAD_SOURCE_LINES) != 0);
 
   qstring *pdb_path = &args->pdb_path;
   int res = ask_form(form, pdb_path, &load_options);
@@ -1149,6 +1158,7 @@ static bool get_details_from_pe(pdbargs_t *args)
 
   setflag(args->flags, PDBFLG_LOAD_TYPES, (load_options & LOAD_TYPES) != 0);
   setflag(args->flags, PDBFLG_LOAD_NAMES, (load_options & LOAD_NAMES) != 0);
+  setflag(args->flags, PDBFLG_LOAD_SOURCE_LINES, (load_options & LOAD_SOURCE_LINES) != 0);
 
   return true;
 }

@@ -97,6 +97,7 @@ public:
   typedef std::set<DWORD> idset_t;
   typedef std::map<qstring, uint32> creating_t;   // typename : ordinal
   typedef std::set<uint32> unnamed_t;
+  typedef std::map<DWORD, qstring> filemap_t;     // file id : filename
 
   struct vft_info_t
   {
@@ -167,6 +168,7 @@ public:
   HRESULT handle_globals(pdb_sym_t &pGlobal);
   HRESULT handle_publics(pdb_sym_t &pGlobal);
   HRESULT handle_types(pdb_sym_t &pGlobal);
+  HRESULT handle_source_lines(pdb_sym_t &global_sym);
   HRESULT build(pdb_sym_t &pGlobal);
   ea_t get_load_address() const { return pdb_access->get_base_address(); }
   HRESULT handle_symbol(pdb_sym_t &sym);
@@ -178,6 +180,8 @@ public:
   bool get_vft_name(qstring *vft_name, uint32 *ord, const char *udt_name, uint32_t offset=0);
   void fix_thisarg_type(const qstring &udt_name);
   bool fix_ctor_to_return_ptr(func_type_data_t *fti, pdb_sym_t *parent, callcnv_t cc);
+
+  const qstring &get_filename(DWORD file_id);
 
   virtual HRESULT before_iterating(pdb_sym_t &global_sym);
   virtual HRESULT after_iterating(pdb_sym_t &global_sym);
@@ -211,6 +215,7 @@ protected:
   creating_t creating;
   unnamed_t unnamed_types;
   vftmap_t vftmap;              // vftable name -> vft info
+  filemap_t cached_filemap;
   int unnamed_idx;
   int level;
 

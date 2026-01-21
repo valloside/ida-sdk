@@ -254,6 +254,21 @@ bool til_builder_t::fix_ctor_to_return_ptr(func_type_data_t *fti, pdb_sym_t *par
 }
 
 //----------------------------------------------------------------------------
+const qstring &til_builder_t::get_filename(DWORD file_id)
+{
+  auto iter = cached_filemap.find(file_id);
+  if (iter == cached_filemap.end())
+  {
+    qstring filename;
+    HRESULT hr = pdb_access->sip_retrieve_file_path(&filename, nullptr, file_id);
+    if ( FAILED(hr) )
+      filename.sprnt("<unknown-file-%d>", file_id);
+    iter = cached_filemap.try_emplace(file_id, std::move(filename)).first;
+  }
+  return iter->second;
+}
+
+//----------------------------------------------------------------------------
 size_t til_builder_t::get_symbol_type_length(pdb_sym_t &sym) const
 {
   DWORD64 size = 0;
@@ -2843,6 +2858,29 @@ HRESULT til_builder_t::handle_types(pdb_sym_t &global_sym)
   return hr;
 }
 
+HRESULT til_builder_t::handle_source_lines(pdb_sym_t &) {
+  struct line_number_visitor : pdb_access_t::line_number_table_visitor_t
+  {
+    virtual HRESULT visit_child(pdb_lnnum_t &line) override
+    {
+      set_source_linnum(line.va, line.lineNumber);
+      add_sourcefile(line.va, line.va + line.length, builder.get_filename(line.file_id).c_str());
+      if ( ++count % 1000 == 0 )
+        indicator.update(count);
+      return S_OK;
+    }
+    line_number_visitor(til_builder_t &_builder) : builder(_builder) {}
+    til_builder_t &builder;
+    pdb_progress_indicator_t indicator{"Handling source lines"};
+    size_t count = 0;
+  };
+  line_number_visitor visitor{*this};
+  HRESULT hr = pdb_access->iterate_line_number_table(visitor);
+  msg("PDB: %d line info%s applied\n",
+    visitor.count,
+    visitor.count > 1 ? "s" : "");
+  return hr;
+}
 
 //----------------------------------------------------------------------------
 HRESULT til_builder_t::before_iterating(pdb_sym_t &)
@@ -2881,6 +2919,8 @@ HRESULT til_builder_t::build(pdb_sym_t &global_sym)
     if ( hr == S_OK )
       hr = handle_publics(global_sym);
   }
+  if ( hr == S_OK && (pdb_access->pdbargs.flags & PDBFLG_LOAD_SOURCE_LINES) != 0 )
+    hr = handle_source_lines(global_sym);
   if ( hr == S_OK )
   {
     {
