@@ -44,6 +44,27 @@ struct pdb_signature_t
 };
 
 //----------------------------------------------------------------------------
+// A helper class to show a progress indicator window
+struct pdb_progress_indicator_t
+{
+  const char *stage_name;
+  pdb_progress_indicator_t(const char *stage_name_) : stage_name(stage_name_)
+  {
+    show_wait_box("Loading PDB: %s...", stage_name);
+  }
+
+  ~pdb_progress_indicator_t()
+  {
+    hide_wait_box();
+  }
+
+  void update(int progress)
+  {
+    replace_wait_box("Loading PDB: %s... (%d done)", stage_name, progress);
+  }
+};
+
+//----------------------------------------------------------------------------
 struct pdbargs_t
 {
   qstring pdb_path;     // Path to PDB file.

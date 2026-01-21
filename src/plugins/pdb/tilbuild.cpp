@@ -2750,27 +2750,6 @@ HRESULT til_builder_t::handle_symbol(pdb_sym_t &sym)
   return S_OK;
 }
 
-//----------------------------------------------------------------------------
-// A helper class to show a progress indicator window
-struct pdb_progress_indicator_t
-{
-  const char *stage_name;
-  pdb_progress_indicator_t(const char *stage_name_) : stage_name(stage_name_)
-  {
-    show_wait_box("Loading PDB: %s...", stage_name);
-  }
-
-  ~pdb_progress_indicator_t()
-  {
-    hide_wait_box();
-  }
-
-  void update(int progress)
-  {
-    replace_wait_box("Loading PDB: %s... (%d done)", stage_name, progress);
-  }
-};
-
 //----------------------------------------------------------------------
 // Each time we encounter a toplevel type/func/whatever, we want to make
 // sure the UI has had a chance to refresh itself.

@@ -1263,7 +1263,7 @@ LOAD_PDB:
   {
     // Now all information is loaded into the database (except names)
     // We are ready to use names.
-    show_wait_box("Loading names ...");
+    pdb_progress_indicator_t indicator{"Loading names"};
     int counter = 0;
     for ( namelist_t::iterator p=namelist.begin(); p != namelist.end(); ++p )
     {
@@ -1282,8 +1282,9 @@ LOAD_PDB:
         ok = false;
         break;
       }
+      if ( counter % 1000 == 0 )
+        indicator.update(counter);
     }
-    hide_wait_box();
     namelist.clear();
     msg("PDB: total %d symbol%s loaded for \"%s\"\n",
         counter,
