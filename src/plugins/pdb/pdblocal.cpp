@@ -174,6 +174,124 @@ HRESULT local_pdb_access_t::_copy_line_numbers(
   return hr;
 }
 
+
+//-------------------------------------------------------------------------
+  template <typename Table>
+  std::enable_if_t<std::is_base_of_v<IUnknown, Table>, HRESULT> local_pdb_access_t::_query_table(Table **table) {
+  IDiaEnumTables *pEnumTables;
+  HRESULT hr = dia_session->getEnumTables(&pEnumTables);
+  if ( FAILED(hr) )
+    return hr;
+  ULONG celt = 0;
+  IDiaTable *pTable;
+  while (SUCCEEDED(hr = pEnumTables->Next(1, &pTable, &celt)) && celt == 1)
+  {
+    hr = pTable->QueryInterface(table);
+    if ( hr == S_OK )
+      return S_OK;
+  }
+  return S_FALSE;
+}
+
+//-------------------------------------------------------------------------
+HRESULT local_pdb_access_t::iterate_source_file_table(source_file_table_visitor_t &visitor)
+{
+  IDiaEnumSourceFiles *source_table;
+  HRESULT hr = _query_table(&source_table);
+  if ( FAILED(hr) )
+    return hr;
+  while ( true )
+  {
+    ULONG celt = 0;
+    dia_ptr_t<IDiaSourceFile> pChild;
+    hr = source_table->Next(1, &pChild.thing, &celt);
+    if ( FAILED(hr) || celt != 1 )
+    {
+      hr = S_OK; // end of enumeration
+      break;
+    }
+    source_file_item_t item;
+    hr = pChild.thing->get_uniqueId(&item.id);
+    if ( hr != S_OK )
+      break;
+    BSTR path;
+    hr = pChild.thing->get_fileName(&path);
+    if ( hr != S_OK )
+      break;
+    utf16_utf8(&item.filename, path);
+    SysFreeString(path);
+    hr = visitor.visit_child(item);
+    if ( FAILED(hr) )
+      break;
+  }
+  return hr;
+}
+
+//-------------------------------------------------------------------------
+HRESULT local_pdb_access_t::iterate_line_number_table(line_number_table_visitor_t &visitor)
+{
+  IDiaEnumLineNumbers *source_table;
+  HRESULT hr = _query_table(&source_table);
+  if ( FAILED(hr) )
+    return hr;
+  while ( true )
+  {
+    ULONG celt = 0;
+    dia_ptr_t<IDiaLineNumber> pChild;
+    hr = source_table->Next(1, &pChild.thing, &celt);
+    if ( FAILED(hr) || celt != 1 )
+    {
+      hr = S_OK; // end of enumeration
+      break;
+    }
+    pdb_lnnum_t lo;
+    IDiaLineNumber *l = pChild.thing;
+    l->get_virtualAddress(&lo.va);
+    l->get_length(&lo.length);
+    l->get_columnNumber(&lo.columnNumber);
+    l->get_columnNumberEnd(&lo.columnNumberEnd);
+    l->get_lineNumber(&lo.lineNumber);
+    l->get_lineNumberEnd(&lo.lineNumberEnd);
+    l->get_statement(&lo.statement);
+    IDiaSourceFile *f = nullptr;
+    if ( l->get_sourceFile(&f) == S_OK )
+    {
+      f->get_uniqueId(&lo.file_id);
+      f->Release();
+    }
+    hr = visitor.visit_child(lo);
+    if ( FAILED(hr) )
+      break;
+  }
+  return hr;
+}
+
+//-------------------------------------------------------------------------
+HRESULT local_pdb_access_t::iterate_symbol_table(children_visitor_t &visitor)
+{
+  IDiaEnumSymbols *source_table;
+  HRESULT hr = _query_table(&source_table);
+  if ( FAILED(hr) )
+    return hr;
+  while ( true )
+  {
+    ULONG celt = 0;
+    dia_ptr_t<IDiaSymbol> pChild;
+    hr = source_table->Next(1, &pChild.thing, &celt);
+    if ( FAILED(hr) || celt != 1 )
+    {
+      hr = S_OK; // end of enumeration
+      break;
+    }
+    pdb_sym_t *child = create_sym(pChild.thing, true);
+    pdb_sym_janitor_t janitor_pType(child);
+    hr = visitor.visit_child(*janitor_pType);
+    if ( FAILED(hr) )
+      break;
+  }
+  return hr;
+}
+
 //-------------------------------------------------------------------------
 HRESULT local_pdb_access_t::sip_retrieve_lines_by_va(
         pdb_lnnums_t *out,

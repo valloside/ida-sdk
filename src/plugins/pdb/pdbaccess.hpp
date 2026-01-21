@@ -586,6 +586,24 @@ public:
         children_visitor_t &visitor);
   virtual HRESULT load(pdb_sym_t &sym, DWORD id) = 0;
 
+  struct source_file_item_t {
+    DWORD id;
+    qstring filename;
+  };
+
+  //----------------------------------------------------------------------------
+  template <typename child_t>
+  struct table_visitor_t {
+    virtual HRESULT visit_child(child_t child) = 0;
+  };
+  struct source_file_table_visitor_t : table_visitor_t<source_file_item_t &> {};
+  struct line_number_table_visitor_t : table_visitor_t<pdb_lnnum_t &> {};
+
+  //----------------------------------------------------------------------------
+  virtual HRESULT iterate_source_file_table(source_file_table_visitor_t &visitor) = 0;
+  virtual HRESULT iterate_line_number_table(line_number_table_visitor_t &visitor) = 0;
+  virtual HRESULT iterate_symbol_table(children_visitor_t &visitor) = 0;
+
   // source-level debugging-specific
   virtual HRESULT sip_retrieve_lines_by_va(
         pdb_lnnums_t *out,

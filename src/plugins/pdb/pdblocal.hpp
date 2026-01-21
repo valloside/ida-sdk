@@ -53,6 +53,10 @@ public:
         children_visitor_t &visitor) override;
   virtual HRESULT load(pdb_sym_t &sym, DWORD id) override;
 
+  virtual HRESULT iterate_source_file_table(source_file_table_visitor_t &visitor) override;
+  virtual HRESULT iterate_line_number_table(line_number_table_visitor_t &visitor) override;
+  virtual HRESULT iterate_symbol_table(children_visitor_t &visitor) override;
+
   virtual HRESULT sip_retrieve_lines_by_va(
         pdb_lnnums_t *out,
         ULONGLONG va,
@@ -108,6 +112,9 @@ private:
   HRESULT _copy_files_ids(
         qvector<DWORD> *out,
         IDiaEnumSourceFiles *enumerator) const;
+
+  template <typename Table>
+  std::enable_if_t<std::is_base_of_v<IUnknown, Table>, HRESULT> _query_table(Table **table);
 
   DECLARE_UNCOPYABLE(local_pdb_access_t)
 };
