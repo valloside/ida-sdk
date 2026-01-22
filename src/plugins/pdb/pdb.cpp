@@ -693,7 +693,7 @@ bool pdb_til_builder_t::handle_symbol_at_ea(
         if ( use_ti )
         {
           type_created(ea, 0, nullptr, tpi.type);
-          apply_tinfo(ea, tpi.type, TINFO_STRICT);
+          apply_tinfo(ea, tpi.type, TINFO_STRICT | (tpi.cvt_code == cvt_code_t::cvt_ok ? TINFO_DEFINITE : 0));
         }
       }
     }
