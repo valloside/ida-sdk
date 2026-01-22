@@ -126,7 +126,7 @@ public:
   uint32 allocate_and_assign_ordinal(const char *name) const;
   bool begin_creation(DWORD tag, const qstring &name, uint32 *p_id);
   uint32 end_creation(const qstring &name);
-  bool is_member_func(tinfo_t *class_type, pdb_sym_t &typeSym, pdb_sym_t *funcSym);
+  bool is_member_func(funcarg_t *thisarg, pdb_sym_t &typeSym, pdb_sym_t *funcSym);
   bool is_frame_reg(int regnum) const;
   bool is_stack_reg(int regnum) const;
   bool is_complex_return(pdb_sym_t &sym) const;
@@ -173,6 +173,7 @@ public:
   ea_t get_load_address() const { return pdb_access->get_base_address(); }
   HRESULT handle_symbol(pdb_sym_t &sym);
   HRESULT handle_tls(pdb_sym_t &sym);
+  HRESULT handle_indirect_callee(pdb_sym_t &sym);
   size_t get_symbol_type_length(pdb_sym_t &sym) const;
   void create_vftables();
   // check for MS or IDA vftable name,

@@ -653,25 +653,20 @@ bool pdb_til_builder_t::handle_symbol_at_ea(
   if ( (pdb_access->pdbargs.flags & PDBFLG_LOAD_TYPES) != 0 )
   {
     tpinfo_t tpi;
-    if ( get_symbol_type(&tpi, sym) )
+    tpi.cvt_code = cvt_code_t::cvt_failed;
+    if ( tag == SymTagFunction )
+    {
+      pdb_sym_t *func_sym = pdb_access->create_sym();
+      pdb_sym_janitor_t janitor_pType(func_sym);
+      if ( sym.get_type(func_sym) == S_OK )
+        tpi.cvt_code = really_convert_type(&tpi, *func_sym, &sym, SymTagFunctionType);
+    }
+    if ( tpi.cvt_code == cvt_code_t::cvt_ok || get_symbol_type(&tpi, sym) )
     {
       // Apparently _NAME_ is a wrong symbol generated for file names
       // It has wrong type information, so correct it
       if ( tag == SymTagData && name == "_NAME_" && tpi.type.get_decltype() == BTF_CHAR )
         tpi.type = tinfo_t::get_stock(STI_ACHAR); // char []
-      if ( tag == SymTagFunction )
-      {
-        // convert the type again, this time passing function symbol
-        // this allows us to get parameter names and handle static class methods
-        pdb_sym_t *func_sym = pdb_access->create_sym();
-        pdb_sym_janitor_t janitor_pType(func_sym);
-        if ( sym.get_type(func_sym) == S_OK )
-        {
-          tpinfo_t tpi2;
-          if ( really_convert_type(&tpi2, *func_sym, &sym, SymTagFunctionType) == cvt_ok )
-            tpi.type.swap(tpi2.type); // successfully retrieved
-        }
-      }
       if ( tpi.type.is_func() || tag == SymTagFunction )
       {
         maybe_func = 1;

@@ -410,77 +410,71 @@ callcnv_t til_builder_t::retrieve_arguments(
         pdb_sym_t *funcSym,
         callcnv_t cc)
 {
-  struct type_name_collector_t : public pdb_access_t::children_visitor_t
+  fi.clear();
+  if ( funcSym == nullptr )
   {
-    func_type_data_t &fi;
-    til_builder_t *tb;
-    til_t *ti;
-    HRESULT visit_child(pdb_sym_t &sym) override
+    struct type_name_collector_t : public pdb_access_t::children_visitor_t
     {
-      // check that it's a parameter
-      DWORD dwDataKind;
-      if ( sym.get_dataKind(&dwDataKind) == S_OK
-        && dwDataKind != DataIsParam
-        && dwDataKind != DataIsObjectPtr )
+      func_type_data_t &fi;
+      til_builder_t *tb;
+      til_t *ti;
+      HRESULT visit_child(pdb_sym_t &sym) override
       {
+        // check that it's a parameter
+        DWORD dwDataKind;
+        if ( sym.get_dataKind(&dwDataKind) == S_OK
+          && dwDataKind != DataIsParam
+          && dwDataKind != DataIsObjectPtr )
+        {
+          return S_OK;
+        }
+        tpinfo_t tpi;
+        bool cvt_succeeded = tb->retrieve_type(&tpi, sym, parent);
+        if ( cvt_succeeded || tpi.is_notype )
+        {
+          funcarg_t &arg = fi.push_back();
+          arg.type = tpi.type;
+        }
         return S_OK;
       }
-      tpinfo_t tpi;
-      bool cvt_succeeded = tb->retrieve_type(&tpi, sym, parent);
-      if ( cvt_succeeded || tpi.is_notype )
-      {
-        funcarg_t &arg = fi.push_back();
-        arg.type = tpi.type;
-        sym.get_name(&arg.name);
-      }
-      return S_OK;
-    }
-    type_name_collector_t(til_t *_ti, til_builder_t *_tb, func_type_data_t &_fi)
-      : fi(_fi), tb(_tb), ti(_ti) {}
-  };
-  fi.clear();
-  type_name_collector_t pp(ti, this, fi);
-  HRESULT hr = pdb_access->iterate_children(_sym, SymTagNull, pp);
-  if ( hr == S_OK && funcSym != nullptr )
+      type_name_collector_t(til_t *_ti, til_builder_t *_tb, func_type_data_t &_fi)
+        : fi(_fi), tb(_tb), ti(_ti) {}
+    };
+    type_name_collector_t pp(ti, this, fi);
+    HRESULT hr = pdb_access->iterate_children(_sym, SymTagNull, pp);
+  }
+  else
   {
-    // get parameter names from the function symbol
     func_type_data_t args;
     args.flags = 0;
-    enum_function_args(*funcSym, args);
+    enum_function_args(*funcSym, fi);
 //    QASSERT(497, args.empty() || args.size() == fi.size() );
     bool custom_cc = false;
     for ( int i = 0; i < fi.size(); i++ )
     {
-      if ( i < args.size() )
+      argloc_t &cur_argloc = fi[i].argloc;
+      if ( !custom_cc && cur_argloc.is_reg1() )
       {
-        if ( fi[i].name.empty() )
-          fi[i].name = args[i].name;
-        argloc_t &cur_argloc = args[i].argloc;
-        fi[i].argloc = cur_argloc;
-        if ( !custom_cc && cur_argloc.is_reg1() )
+        if ( is_intel386(pdb_access->get_machine_type()) )
         {
-          if ( is_intel386(pdb_access->get_machine_type()) )
+          if ( (cc == CM_CC_FASTCALL || cc == CM_CC_SWIFT) // FIXME
+            && cur_argloc.regoff() == 0
+            && (cur_argloc.reg1() == R_cx && i == 0
+              || cur_argloc.reg1() == R_dx && i == 1) )
           {
-            if ( (cc == CM_CC_FASTCALL || cc == CM_CC_SWIFT) // FIXME
-              && cur_argloc.regoff() == 0
-              && (cur_argloc.reg1() == R_cx && i == 0
-               || cur_argloc.reg1() == R_dx && i == 1) )
-            {
-              // ignore ecx and edx for fastcall
-            }
-            else if ( cc == CM_CC_THISCALL
-                   && cur_argloc.regoff() == 0
-                   && cur_argloc.reg1() == R_cx && i == 0 )
-            {
-              // ignore ecx for thiscall
-            }
-            else
-            {
-              custom_cc = true;
-            }
+            // ignore ecx and edx for fastcall
+          }
+          else if ( cc == CM_CC_THISCALL
+                  && cur_argloc.regoff() == 0
+                  && cur_argloc.reg1() == R_cx && i == 0 )
+          {
+            // ignore ecx for thiscall
+          }
+          else
+          {
+            custom_cc = true;
           }
         }
-        //ask_for_feedback("pdb: register arguments are not supported for machine type %d", machine_type);
       }
     }
     if ( custom_cc )
@@ -581,55 +575,46 @@ uint32 til_builder_t::get_variant_long_value(pdb_sym_t &sym) const
 }
 
 //----------------------------------------------------------------------
-// funcSym is Function, typeSym is FunctionType
-bool til_builder_t::is_member_func(tinfo_t *class_type, pdb_sym_t &typeSym, pdb_sym_t *funcSym)
+// borland does not like this structure to be defined inside a function.
+// this is the only reason why it is in the file scope.
+struct this_seeker_t : public pdb_access_t::children_visitor_t
 {
-  // make sure we retrieve class type first
-  pdb_sym_t *pParent = pdb_access->create_sym();
-  pdb_sym_janitor_t janitor_pParent(pParent);
-  if ( typeSym.get_classParent(pParent) != S_OK || pParent->empty() )
-    return false;
-
-  tpinfo_t tpi;
-  if ( !retrieve_type(&tpi, *pParent, nullptr) )
-    return false; // failed to retrieve the parent's type
-
-  class_type->swap(tpi.type);
-
-  // then check if it's static
-  if ( funcSym != nullptr
-    && pdb_access->get_dia_version() >= 800 )
+  funcarg_t thisarg;
+  til_builder_t *tb;
+  bool found;
+  virtual HRESULT visit_child(pdb_sym_t &sym) override
   {
-    BOOL bIsStatic = false;
-    HRESULT hr = funcSym->get_isStatic(&bIsStatic);
-    if ( hr == S_OK )
+    DWORD dwDataKind, locType;
+    if ( sym.get_dataKind(&dwDataKind) == S_OK
+      && dwDataKind == DataIsObjectPtr
+      && sym.get_locationType(&locType) == S_OK )
     {
-      if ( !bIsStatic )
-        return true; // DIA says it's not static, we trust it
-
-      // DIA says it's static, it might be wrong
-      struct object_ptr_checker_t : public pdb_access_t::children_visitor_t
-      {
-        bool has_objptr = false;
-        HRESULT visit_child(pdb_sym_t &sym) override
-        {
-          DWORD data_kind;
-          if ( sym.get_dataKind(&data_kind) == S_OK && data_kind == DataIsObjectPtr )
-          {
-            has_objptr = true;
-            return S_FALSE;
-          }
-          return S_OK;
-        }
-      };
-
-      object_ptr_checker_t checker;
-      pdb_access->iterate_children(*funcSym, SymTagData, checker);
-
-      return checker.has_objptr;
+      tb->get_symbol_funcarg_info(&thisarg, sym, dwDataKind, locType, 0);
+      found = true;
+      return S_FALSE; // Stop enum.
     }
+    return S_OK;
   }
-  return true;
+  this_seeker_t(til_builder_t *_tb) : thisarg(), tb(_tb), found(false) {}
+};
+
+//----------------------------------------------------------------------
+// funcSym is Function, typeSym is FunctionType
+bool til_builder_t::is_member_func(funcarg_t *thisarg, pdb_sym_t &typeSym, pdb_sym_t *funcSym)
+{
+  // due to MSDIA error sometimes it is failed to answer correctly
+  // for the get_isStatic() request (S_FALSE).
+  // So we need to check does 'this' pointer present in the function parameters.
+  if ( funcSym != nullptr )
+  {
+    this_seeker_t ts(this);
+    pdb_access->iterate_children(*funcSym, SymTagData, ts);
+    thisarg->argloc = ts.thisarg.argloc;
+    thisarg->type.swap(ts.thisarg.type);
+    thisarg->name = "this";
+    return ts.found;
+  }
+  return false;
 }
 
 //----------------------------------------------------------------------
@@ -1878,31 +1863,6 @@ bool til_builder_t::is_unnamed_tag_typedef(const tinfo_t &tif) const
   return unnamed_types.find(id) != unnamed_types.end();
 }
 
-
-//----------------------------------------------------------------------
-// borland does not like this structure to be defined inside a function.
-// this is the only reason why it is in the file scope.
-struct this_seeker_t : public pdb_access_t::children_visitor_t
-{
-  funcarg_t thisarg;
-  til_builder_t *tb;
-  bool found;
-  virtual HRESULT visit_child(pdb_sym_t &sym) override
-  {
-    DWORD dwDataKind, locType;
-    if ( sym.get_dataKind(&dwDataKind) == S_OK
-      && dwDataKind == DataIsObjectPtr
-      && sym.get_locationType(&locType) == S_OK )
-    {
-      tb->get_symbol_funcarg_info(&thisarg, sym, dwDataKind, locType, 0);
-      found = true;
-      return S_FALSE; // Stop enum.
-    }
-    return S_OK;
-  }
-  this_seeker_t(til_builder_t *_tb) : thisarg(), tb(_tb), found(false) {}
-};
-
 //----------------------------------------------------------------------------
 inline type_t get_sym_modifiers(pdb_sym_t &sym)
 {
@@ -2049,36 +2009,20 @@ FAILED_ARRAY:
           }
           // is there an implicit "this" passed?
           // N.B.: 'this' is passed before the implicit result, if both are present
-          tinfo_t class_type;
-          if ( is_member_func(&class_type, sym, parent) )
+          funcarg_t thisarg;
+          if ( is_member_func(&thisarg, sym, parent) )
           {
-            class_type.create_ptr(class_type);
-            funcarg_t thisarg;
-            thisarg.type = class_type;
-            thisarg.name = "this";
-            // due to MSDIA error sometimes it is failed to answer correctly
-            // for the get_isStatic() request (S_FALSE).
-            // So we need to check does 'this' pointer present in the function parameters.
-            bool add_this = true;
-            if ( parent != nullptr )
-            {
-              this_seeker_t ts(this);
-              pdb_access->iterate_children(*parent, SymTagData, ts);
-              thisarg.argloc = ts.thisarg.argloc;
-              if ( thisarg.argloc.is_stkoff() )
-              { // shift the remaining stkargs
-                int delta = thisarg.type.get_size();
-                for ( int i=0; i < fi.size(); i++ )
-                {
-                  funcarg_t &fa = fi[i];
-                  if ( fa.argloc.is_stkoff() )
-                    fa.argloc.set_stkoff(fa.argloc.stkoff()+delta);
-                }
+            if ( thisarg.argloc.is_stkoff() )
+            { // shift the remaining stkargs
+              int delta = thisarg.type.get_size();
+              for ( int i=0; i < fi.size(); i++ )
+              {
+                funcarg_t &fa = fi[i];
+                if ( fa.argloc.is_stkoff() )
+                  fa.argloc.set_stkoff(fa.argloc.stkoff()+delta);
               }
-              add_this = ts.found;
             }
-            if ( add_this )
-              fi.insert(fi.begin(), thisarg);
+            fi.insert(fi.begin(), thisarg);
             fix_ctor_to_return_ptr(&fi, parent, cc);
           }
           if ( is_user_cc(cc) )
@@ -2451,6 +2395,14 @@ void til_builder_t::handle_function_type(pdb_sym_t &fun_sym, ea_t ea)
         case SymTagFuncDebugStart:
         case SymTagFuncDebugEnd:
           return S_OK;    // ignore these for the moment
+        case SymTagCallSite:
+        {
+          DWORD loc_type;
+          if ( sym.get_locationType(&loc_type) != S_OK )
+            return tb->handle_indirect_callee(sym); // call function ptr/call thunk/call extern function
+          else
+            return tb->handle_function_child(fun_sym, ea, sym, tag, loc_type);
+        }
       }
 
       DWORD loc_type;
@@ -2791,6 +2743,11 @@ HRESULT til_builder_t::handle_tls(pdb_sym_t &sym)
   tls_seg_type.add_udm(name.c_str(), tif.type, offset * 8);
   tls_seg_type_created.emplace(offset);
   return S_OK;
+}
+
+HRESULT til_builder_t::handle_indirect_callee(pdb_sym_t &sym)
+{
+  return E_NOTIMPL;
 }
 
 //----------------------------------------------------------------------
