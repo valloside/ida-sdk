@@ -79,8 +79,9 @@ struct pdbargs_t
 #define PDBFLG_EFD                0x0004
 #define PDBFLG_COFF_FILE          0x0008
 #define PDBFLG_LOAD_NAMES         0x0010
-#define PDBFLG_USE_HTTP           0x0100
 #define PDBFLG_LOAD_SOURCE_LINES  0x0020
+#define PDBFLG_LOAD_INLINE_SITES  0x0040
+#define PDBFLG_USE_HTTP           0x0100
 
   pdbargs_t(void)
     : loaded_base(BADADDR),

@@ -172,6 +172,7 @@ public:
   HRESULT build(pdb_sym_t &pGlobal);
   ea_t get_load_address() const { return pdb_access->get_base_address(); }
   HRESULT handle_symbol(pdb_sym_t &sym);
+  HRESULT handle_tls(pdb_sym_t &sym);
   size_t get_symbol_type_length(pdb_sym_t &sym) const;
   void create_vftables();
   // check for MS or IDA vftable name,
@@ -216,11 +217,14 @@ protected:
   unnamed_t unnamed_types;
   vftmap_t vftmap;              // vftable name -> vft info
   filemap_t cached_filemap;
+  tinfo_t tls_seg_type;
+  std::set<size_t> tls_seg_type_created;
   int unnamed_idx;
   int level;
 
 public:
   til_t *ti;
   pdb_access_t *pdb_access;
+  int applied_line_number_count = 0;
   bool enregistered_bug;
 };

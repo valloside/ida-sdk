@@ -199,6 +199,7 @@ enum BasicType
   btChar16 = 32, // char16_t
   btChar32 = 33, // char32_t
   btChar8 = 34,  // char8_t
+  btVector = 35
 };
 
 //      enumeration for type modifier values

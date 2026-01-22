@@ -56,6 +56,7 @@ public:
   virtual HRESULT iterate_source_file_table(source_file_table_visitor_t &visitor) override;
   virtual HRESULT iterate_line_number_table(line_number_table_visitor_t &visitor) override;
   virtual HRESULT iterate_symbol_table(children_visitor_t &visitor) override;
+  virtual HRESULT iterate_inlinee_lines(pdb_sym_t &inline_site, line_number_table_visitor_t &visitor) override;
 
   virtual HRESULT sip_retrieve_lines_by_va(
         pdb_lnnums_t *out,

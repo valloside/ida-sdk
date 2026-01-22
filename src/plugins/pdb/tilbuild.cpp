@@ -2494,12 +2494,15 @@ HRESULT til_builder_t::handle_function_child(
       break; // we ignore function level constants
 
     case LocIsStatic:
-    case LocIsTLS:              // not tested
       handle_symbol(child_sym);
       break;
-
+    case LocIsTLS:
+      handle_tls(child_sym);
+      break;
     case LocIsEnregistered:
     case LocIsRegRel:
+      break;
+    case LocIsRegRelAliasIndir:  // TODO
       break;
 
     default:
@@ -2765,6 +2768,31 @@ HRESULT til_builder_t::handle_symbol(pdb_sym_t &sym)
   return S_OK;
 }
 
+HRESULT til_builder_t::handle_tls(pdb_sym_t &sym)
+{
+  if ( tls_seg_type.empty() )
+    tls_seg_type.create_udt();
+
+  DWORD offset;
+  HRESULT hr = sym.get_addressOffset(&offset);
+  if ( FAILED(hr) )
+    return hr;
+  if ( tls_seg_type_created.count(offset) )
+    return S_OK;
+  qstring name;
+  sym.get_name(&name);
+  if ( name.empty() )
+    name = "thread_local_var";
+  name.cat_sprnt("_%d", offset);
+  tpinfo_t tif;
+  get_symbol_type(&tif, sym);
+  if ( tif.cvt_code != cvt_code_t::cvt_ok )
+    tif.type.create_array(tinfo_t(BTF_BYTE));
+  tls_seg_type.add_udm(name.c_str(), tif.type, offset * 8);
+  tls_seg_type_created.emplace(offset);
+  return S_OK;
+}
+
 //----------------------------------------------------------------------
 // Each time we encounter a toplevel type/func/whatever, we want to make
 // sure the UI has had a chance to refresh itself.
@@ -2864,21 +2892,18 @@ HRESULT til_builder_t::handle_source_lines(pdb_sym_t &) {
     virtual HRESULT visit_child(pdb_lnnum_t &line) override
     {
       set_source_linnum(line.va, line.lineNumber);
-      add_sourcefile(line.va, line.va + line.length, builder.get_filename(line.file_id).c_str());
-      if ( ++count % 1000 == 0 )
-        indicator.update(count);
+      add_sourcefile(line.va, line.va + 1, builder.get_filename(line.file_id).c_str());
+      if ( ++builder.applied_line_number_count % 1000 == 0 )
+        indicator.update(builder.applied_line_number_count);
       return S_OK;
     }
     line_number_visitor(til_builder_t &_builder) : builder(_builder) {}
     til_builder_t &builder;
     pdb_progress_indicator_t indicator{"Handling source lines"};
-    size_t count = 0;
   };
   line_number_visitor visitor{*this};
   HRESULT hr = pdb_access->iterate_line_number_table(visitor);
-  msg("PDB: %d line info%s applied\n",
-    visitor.count,
-    visitor.count > 1 ? "s" : "");
+  msg("PDB: %d line info applied\n", applied_line_number_count);
   return hr;
 }
 
@@ -2892,6 +2917,8 @@ HRESULT til_builder_t::before_iterating(pdb_sym_t &)
 //----------------------------------------------------------------------------
 HRESULT til_builder_t::after_iterating(pdb_sym_t &)
 {
+  if ( !tls_seg_type.empty() )
+    tls_seg_type.set_named_type(ti, "_TLS_SEG_USER_DEFINED_TYPES", NTF_REPLACE);
   return S_OK;
 }
 

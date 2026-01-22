@@ -35,6 +35,7 @@ int data_id;
 #define LOAD_TYPES        0x1
 #define LOAD_NAMES        0x2
 #define LOAD_SOURCE_LINES 0x4
+#define LOAD_INLINE_SITES 0x8
 
 #include "common.cpp"
 #ifdef ENABLE_REMOTEPDB
@@ -579,6 +580,42 @@ bool pdb_til_builder_t::handle_symbol_at_ea(
         maybe_func = segtype(ea) == SEG_CODE ? 2 /*no func, but code*/ : 0 /*unclear*/;
       }
       break;
+    case SymTagInlineSite:
+      if ( (pdb_access->pdbargs.flags & PDBFLG_LOAD_INLINE_SITES) != 0 )
+      {
+        tpinfo_t tpi;
+        if ( get_symbol_type(&tpi, sym) )
+        {
+          qstring type_and_name;
+          if ( tpi.type.print(&type_and_name, name.c_str(), PRTYPE_NOREGEX) )
+            add_extra_cmt(ea, true, "[inline site] '%s':\n%s", name.c_str(), type_and_name.c_str());
+          else
+          add_extra_cmt(ea, true, "[inline site] '%s'", name.c_str());
+        }
+        else
+        {
+          add_extra_cmt(ea, true, "[inline site] '%s'", name.c_str());
+        }
+      }
+      if ( (pdb_access->pdbargs.flags & PDBFLG_LOAD_SOURCE_LINES) != 0 )
+      {
+        struct line_number_visitor : pdb_access_t::line_number_table_visitor_t
+        {
+          virtual HRESULT visit_child(pdb_lnnum_t &line) override
+          {
+            set_source_linnum(line.va, line.lineNumber);
+            add_sourcefile(line.va, line.va + 1, builder.get_filename(line.file_id).c_str());
+            builder.applied_line_number_count++;
+            return S_OK;
+          }
+          line_number_visitor(til_builder_t &_builder) : builder(_builder) {}
+          til_builder_t &builder;
+        };
+        line_number_visitor visitor{*this};
+        pdb_access->iterate_inlinee_lines(sym, visitor);
+      }
+      handle_function_type(sym, ea);
+      return true;
     default:
       break;
   }
@@ -994,6 +1031,7 @@ static qstring get_input_path()
 #define LOAD_TYPES_FIELD 20
 #define LOAD_NAMES_FIELD 30
 #define LOAD_SRC_LINES_FIELD 40
+#define LOAD_INLINE_SITES_FIELD 50
 
 //--------------------------------------------------------------------------
 static int idaapi details_modcb(int fid, form_actions_t &fa)
@@ -1004,13 +1042,15 @@ static int idaapi details_modcb(int fid, form_actions_t &fa)
     case LOAD_TYPES_FIELD:
     case LOAD_NAMES_FIELD:
     case LOAD_SRC_LINES_FIELD:
+    case LOAD_INLINE_SITES_FIELD:
       {
-        ushort types, names, srclines;
+        ushort types, names, srclines, inlinesites;
         if ( fa.get_rbgroup_value(LOAD_TYPES_FIELD, &types)
           && fa.get_rbgroup_value(LOAD_NAMES_FIELD, &names)
-          && fa.get_rbgroup_value(LOAD_SRC_LINES_FIELD, &srclines) )
+          && fa.get_rbgroup_value(LOAD_SRC_LINES_FIELD, &srclines)
+          && fa.get_rbgroup_value(LOAD_INLINE_SITES_FIELD, &inlinesites) )
         {
-          fa.enable_field(ADDRESS_FIELD, !(types != 0 && names == 0 && srclines == 0));
+          fa.enable_field(ADDRESS_FIELD, !(types != 0 && names == 0 && srclines == 0 && inlinesites == 0));
         }
       }
       break;
@@ -1047,8 +1087,9 @@ static bool ask_pdb_details(pdbargs_t *args)
     "<#Specify the path to the file to load symbols for#~I~nput file:f:0:64::>\n"
     "<#Specify the loading address of the exe/dll file#~A~ddress   :N" QSTRINGIZE(ADDRESS_FIELD) "::64::>\n"
     "<#Load types#Load ~t~ypes:C" QSTRINGIZE(LOAD_TYPES_FIELD) ">\n"
-    "<#Load names#Load ~n~ames:C" QSTRINGIZE(LOAD_NAMES_FIELD) ">>\n"
-    "<#Load source lines#Load ~s~ource lines:C" QSTRINGIZE(LOAD_SRC_LINES_FIELD) ">>\n"
+    "<#Load names#Load ~n~ames:C" QSTRINGIZE(LOAD_NAMES_FIELD) ">\n"
+    "<#Load source lines#Load ~s~ource lines:C" QSTRINGIZE(LOAD_SRC_LINES_FIELD) ">\n"
+    "<#Load inline sites#Load ~i~nline sites:C" QSTRINGIZE(LOAD_INLINE_SITES_FIELD) ">>\n"
     "Note: you can specify either a .pdb, or an .exe/.dll file name.\n"
     "In the latter case, IDA will try to find and load\n"
     "the PDB specified in its debug directory.\n"
@@ -1070,6 +1111,7 @@ static bool ask_pdb_details(pdbargs_t *args)
   setflag(load_options, LOAD_TYPES, (args->flags & PDBFLG_LOAD_TYPES) != 0);
   setflag(load_options, LOAD_NAMES, (args->flags & PDBFLG_LOAD_NAMES) != 0);
   setflag(load_options, LOAD_SOURCE_LINES, (args->flags & PDBFLG_LOAD_SOURCE_LINES) != 0);
+  setflag(load_options, LOAD_INLINE_SITES, (args->flags & PDBFLG_LOAD_INLINE_SITES) != 0);
 
   if ( !ask_form(form, details_modcb, buf, &args->loaded_base, &load_options) )
     return false;
@@ -1079,6 +1121,7 @@ static bool ask_pdb_details(pdbargs_t *args)
   setflag(args->flags, PDBFLG_LOAD_TYPES, (load_options & LOAD_TYPES) != 0);
   setflag(args->flags, PDBFLG_LOAD_NAMES, (load_options & LOAD_NAMES) != 0);
   setflag(args->flags, PDBFLG_LOAD_SOURCE_LINES, (load_options & LOAD_SOURCE_LINES) != 0);
+  setflag(args->flags, PDBFLG_LOAD_INLINE_SITES, (load_options & LOAD_INLINE_SITES) != 0);
 
   return true;
 }
@@ -1144,12 +1187,14 @@ static bool get_details_from_pe(pdbargs_t *args)
     "and the Microsoft Symbol Server?\n"
     "<#Load types#Load ~t~ypes:C10>\n"
     "<#Load names#Load n~a~mes:C20>\n"
-    "<#Load source lines#Load ~s~ource lines:C30>>\n";
+    "<#Load source lines#Load ~s~ource lines:C30>\n"
+    "<#Load inline sites#Load ~i~nline sites:C40>>\n";
 
   sval_t load_options = 0;
   setflag(load_options, LOAD_TYPES, (args->flags & PDBFLG_LOAD_TYPES) != 0);
   setflag(load_options, LOAD_NAMES, (args->flags & PDBFLG_LOAD_NAMES) != 0);
   setflag(load_options, LOAD_SOURCE_LINES, (args->flags & PDBFLG_LOAD_SOURCE_LINES) != 0);
+  setflag(load_options, LOAD_INLINE_SITES, (args->flags & PDBFLG_LOAD_INLINE_SITES) != 0);
 
   qstring *pdb_path = &args->pdb_path;
   int res = ask_form(form, pdb_path, &load_options);
@@ -1159,6 +1204,7 @@ static bool get_details_from_pe(pdbargs_t *args)
   setflag(args->flags, PDBFLG_LOAD_TYPES, (load_options & LOAD_TYPES) != 0);
   setflag(args->flags, PDBFLG_LOAD_NAMES, (load_options & LOAD_NAMES) != 0);
   setflag(args->flags, PDBFLG_LOAD_SOURCE_LINES, (load_options & LOAD_SOURCE_LINES) != 0);
+  setflag(args->flags, PDBFLG_LOAD_INLINE_SITES, (load_options & LOAD_INLINE_SITES) != 0);
 
   return true;
 }
