@@ -667,7 +667,7 @@ bool pdb_til_builder_t::handle_symbol_at_ea(
       // It has wrong type information, so correct it
       if ( tag == SymTagData && name == "_NAME_" && tpi.type.get_decltype() == BTF_CHAR )
         tpi.type = tinfo_t::get_stock(STI_ACHAR); // char []
-      if ( tpi.type.is_func() || tag == SymTagFunction )
+      else if ( tpi.type.is_func() || tag == SymTagFunction )
       {
         maybe_func = 1;
         handle_function_type(sym, ea);
@@ -680,21 +680,11 @@ bool pdb_til_builder_t::handle_symbol_at_ea(
       {
         if ( tag == SymTagData && name.ends_with("::`vftable'") )
           fix_vftable_size(ea, tpi);
-
-        bool use_ti = true;
-        func_type_data_t fti;
-        if ( tpi.type.get_func_details(&fti)
-          && fti.empty()
-          && fti.rettype.is_decl_void() )
-        { // sometimes there are functions with linked FunctionType but no parameter or return type info in it
-          // we get better results by not forcing type info on them
-          use_ti = false;
-        }
-        if ( use_ti )
-        {
-          type_created(ea, 0, nullptr, tpi.type);
-          apply_tinfo(ea, tpi.type, TINFO_STRICT | (tpi.cvt_code == cvt_code_t::cvt_ok ? TINFO_DEFINITE : 0));
-        }
+        type_created(ea, 0, nullptr, tpi.type);
+        if ( tpi.cvt_code == cvt_code_t::cvt_ok || tag == SymTagData )
+          apply_tinfo(ea, tpi.type, TINFO_STRICT | TINFO_DEFINITE);
+        else
+          apply_tinfo(ea, tpi.type, TINFO_STRICT);
       }
     }
     else if ( maybe_func == 1 )
