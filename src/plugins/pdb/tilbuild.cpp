@@ -614,7 +614,19 @@ bool til_builder_t::is_member_func(funcarg_t *thisarg, pdb_sym_t &typeSym, pdb_s
     thisarg->name = "this";
     return ts.found;
   }
-  return false;
+  else
+  {
+    pdb_sym_t *pType = pdb_access->create_sym();
+    pdb_sym_janitor_t janitor_pType(pType);
+    if ( typeSym.get_objectPointerType(pType) != S_OK )
+      return false;
+    tpinfo_t tif;
+    if ( really_convert_type(&tif, *pType, nullptr, SymTagPointerType) != cvt_ok )
+      return false;
+    thisarg->type.swap(tif.type);
+    thisarg->name = "this";
+    return true;
+  }
 }
 
 //----------------------------------------------------------------------
@@ -1074,10 +1086,12 @@ static void add_vftable_member(
 //----------------------------------------------------------------------
 inline bool get_vfptr_offset(DWORD *vfptr_offset, pdb_sym_t &sym)
 {
-  BOOL is_virtual;
+  BOOL is_virtual, is_intro;
   return sym.get_virtual(&is_virtual) == S_OK
       && is_virtual
-      && sym.get_virtualBaseOffset(vfptr_offset) == S_OK;
+      && sym.get_virtualBaseOffset(vfptr_offset) == S_OK
+      && sym.get_intro(&is_intro) == S_OK
+      && is_intro;
 }
 
 //----------------------------------------------------------------------
@@ -1294,10 +1308,6 @@ cvt_code_t til_builder_t::convert_udt(
 
       if ( is_intro_virtual )
       {
-        // DIA always returns a 0 offset for override virtual functions, we merge dtor and ignore rest
-        if ( vfptr_offset == 0 && name.find('~') == qstring::npos )
-          return S_OK;
-
         if ( vftinfo != nullptr )
         {
           ddeb(("PDEB:   convert_udt vtable %s add '%s' of '%s' vptr offset %u\n", vftname, name.c_str(), tpi.type.dstr(), vfptr_offset));
@@ -1883,7 +1893,7 @@ cvt_code_t til_builder_t::really_convert_type(
         DWORD tag)
 {
   // retrieve type modifiers
-  type_t mods = tag == SymTagUDT ? 0 : get_sym_modifiers(sym);
+  type_t mods = parent ? 0 : get_sym_modifiers(sym);
 
   DWORD64 size = 0;
   sym.get_length(&size);
@@ -2399,7 +2409,7 @@ void til_builder_t::handle_function_type(pdb_sym_t &fun_sym, ea_t ea)
         {
           DWORD loc_type;
           if ( sym.get_locationType(&loc_type) != S_OK )
-            return tb->handle_indirect_callee(sym); // call function ptr/call thunk/call extern function
+            return tb->handle_indirect_callee(sym, tag, fun_sym, ea); // call function ptr/call thunk/call extern function
           else
             return tb->handle_function_child(fun_sym, ea, sym, tag, loc_type);
         }
@@ -2745,9 +2755,59 @@ HRESULT til_builder_t::handle_tls(pdb_sym_t &sym)
   return S_OK;
 }
 
-HRESULT til_builder_t::handle_indirect_callee(pdb_sym_t &sym)
+HRESULT til_builder_t::handle_indirect_callee(pdb_sym_t &sym, DWORD tag, pdb_sym_t &caller, ea_t caller_ea)
 {
-  return E_NOTIMPL;
+  DWORD rva;
+  HRESULT hr = sym.get_relativeVirtualAddress(&rva);
+  if ( FAILED(hr) )
+    return hr;
+  ea_t ea = get_load_address() + rva;
+  if ( handled_callee.count(ea) )
+    return S_OK;
+  tpinfo_t func_type;
+  get_symbol_type(&func_type, sym);
+  if ( func_type.cvt_code != cvt_code_t::cvt_ok )
+    return S_FALSE;
+  if ( func_type.type.is_decl_func() )
+  {
+    insn_t insn;
+    if ( decode_insn(&insn, ea) > 0 )
+    {
+      uint32 feature = insn.get_canon_feature(pv.ph);
+      bool is_call = (feature & CF_CALL) != 0;
+      bool is_jmp = !is_call && (feature & CF_JUMP) != 0;
+      const op_t &op = insn.Op1;
+      ea_t target_ea = BADADDR;
+      if ( is_call || is_jmp )
+      {
+        switch ( op.type )
+        {
+          case o_near:
+          case o_far:
+          case o_mem:
+            if ( handled_callee.count(ea) )
+              return S_OK;
+            apply_tinfo(op.addr, func_type.type, TINFO_STRICT | TINFO_DEFINITE);
+            handled_callee.emplace(op.addr);
+            break;
+          case o_reg:
+          case o_phrase:
+          case o_displ:
+          default:
+            break;
+        }
+      }
+    }
+  }
+  else if ( tinfo_t pointee = func_type.type.get_pointed_object(); !pointee.empty() )
+  {
+    func_type.type.swap(pointee);
+  }
+  qstring type_str;
+  func_type.type.print(&type_str, nullptr, PRTYPE_NOREGEX, 0, 0, "[callee type] ");
+  set_cmt(ea, type_str.c_str(), false);
+  handled_callee.emplace(ea);
+  return S_OK;
 }
 
 //----------------------------------------------------------------------

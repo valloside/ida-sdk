@@ -173,7 +173,7 @@ public:
   ea_t get_load_address() const { return pdb_access->get_base_address(); }
   HRESULT handle_symbol(pdb_sym_t &sym);
   HRESULT handle_tls(pdb_sym_t &sym);
-  HRESULT handle_indirect_callee(pdb_sym_t &sym);
+  HRESULT handle_indirect_callee(pdb_sym_t &sym, DWORD tag, pdb_sym_t &caller, ea_t caller_ea);
   size_t get_symbol_type_length(pdb_sym_t &sym) const;
   void create_vftables();
   // check for MS or IDA vftable name,
@@ -220,6 +220,7 @@ protected:
   filemap_t cached_filemap;
   tinfo_t tls_seg_type;
   std::set<size_t> tls_seg_type_created;
+  std::set<ea_t> handled_callee;
   int unnamed_idx;
   int level;
 

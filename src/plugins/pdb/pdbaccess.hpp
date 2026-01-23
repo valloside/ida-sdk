@@ -155,6 +155,7 @@ struct pdb_sym_t
   virtual HRESULT get_virtual(BOOL *out) = 0;
   virtual HRESULT get_virtualAddress(ULONGLONG *out) = 0;
   virtual HRESULT get_virtualBaseOffset(DWORD *out) = 0;
+  virtual HRESULT get_intro(BOOL *out) = 0;
   virtual HRESULT get_volatileType(BOOL *out) = 0;
   virtual HRESULT get_addressOffset(DWORD *out) = 0;
   virtual HRESULT get_addressSection(DWORD* out) = 0;
@@ -164,6 +165,7 @@ struct pdb_sym_t
   // return S_FALSE.
   virtual HRESULT get_classParent(pdb_sym_t *out) = 0;
   virtual HRESULT get_type(pdb_sym_t *out) = 0;
+  virtual HRESULT get_objectPointerType(pdb_sym_t *out) = 0;
   //------------------------------------------------------------
   virtual HRESULT get_ordinal(DWORD *pRetVal) = 0;
 
@@ -367,6 +369,7 @@ struct dia_pdb_sym_t : public pdb_sym_t
   HRESULT get_virtual(BOOL *out)                  { return data->get_virtual(out); }
   HRESULT get_virtualAddress(ULONGLONG *out)      { return data->get_virtualAddress(out); }
   HRESULT get_virtualBaseOffset(DWORD *out)       { return data->get_virtualBaseOffset(out); }
+  HRESULT get_intro(BOOL *out)                    { return data->get_intro(out); }
   HRESULT get_addressOffset(DWORD *out)           { return data->get_addressOffset(out); }
   HRESULT get_addressSection(DWORD* out)          { return data->get_addressSection(out); }
   HRESULT get_volatileType(BOOL *out)             { return data->get_volatileType(out); }
@@ -381,6 +384,12 @@ struct dia_pdb_sym_t : public pdb_sym_t
   {
     IDiaSymbol *t;
     HRESULT res = data->get_type(&t);
+    return handle_related_symbol(res, t, out);
+  }
+  HRESULT get_objectPointerType(pdb_sym_t *out)
+  {
+    IDiaSymbol *t;
+    HRESULT res = data->get_objectPointerType(&t);
     return handle_related_symbol(res, t, out);
   }
 
@@ -470,11 +479,13 @@ struct remote_pdb_sym_t : public pdb_sym_t
   HRESULT get_virtual(BOOL *out) override                 { return data->get_bool(t_virtual, out); }
   HRESULT get_virtualAddress(ULONGLONG *out) override     { return data->get_ulonglong(t_virtualAddress, out); }
   HRESULT get_virtualBaseOffset(DWORD *out) override      { return data->get_dword(t_virtualBaseOffset, out); }
+  HRESULT get_intro(BOOL *out)                            { return S_OK; }
   HRESULT get_addressOffset(DWORD *out)                   { return S_OK; }
   HRESULT get_addressSection(DWORD* out)                  { return S_OK; }
   HRESULT get_volatileType(BOOL *out) override            { return data->get_bool(t_volatileType, out); }
   HRESULT get_classParent(pdb_sym_t *out) override;
   HRESULT get_type(pdb_sym_t *out) override;
+  HRESULT get_objectPointerType(pdb_sym_t *out) { return S_OK; }
   //------------------------------------------------------------
   virtual HRESULT get_ordinal(DWORD *) override { return S_FALSE; }
 
