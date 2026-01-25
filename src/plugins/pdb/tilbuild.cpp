@@ -1313,6 +1313,11 @@ cvt_code_t til_builder_t::convert_udt(
           ddeb(("PDEB:   convert_udt vtable %s add '%s' of '%s' vptr offset %u\n", vftname, name.c_str(), tpi.type.dstr(), vfptr_offset));
           add_vftable_member(&vftinfo->udt, tpi.type, name.c_str(), vfptr_offset);
         }
+        if ( name.find('~') != qstring::npos )
+        {
+          funcarg_t arg("flags", BTF_UINT32);
+          tpi.type.add_funcarg(arg);
+        }
         return S_OK;
       }
 

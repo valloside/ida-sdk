@@ -660,6 +660,11 @@ bool pdb_til_builder_t::handle_symbol_at_ea(
       pdb_sym_janitor_t janitor_pType(func_sym);
       if ( sym.get_type(func_sym) == S_OK )
         tpi.cvt_code = really_convert_type(&tpi, *func_sym, &sym, SymTagFunctionType);
+      if ( tpi.cvt_code == cvt_code_t::cvt_ok && name.ends_with("::`scalar deleting destructor'", 30) )
+      {
+        funcarg_t arg("flags", BTF_UINT32);
+        tpi.type.add_funcarg(arg);
+      }
     }
     if ( tpi.cvt_code == cvt_code_t::cvt_ok || get_symbol_type(&tpi, sym) )
     {
